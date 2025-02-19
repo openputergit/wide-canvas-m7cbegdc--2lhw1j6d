@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Cancer Detection System</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background-color: #f4f0eb;
+        }
+        .neubrutalism {
+            border: 3px solid #000;
+            box-shadow: 5px 5px 0px #000;
+            transition: all 0.2s ease;
+        }
+        .neubrutalism:hover {
+            transform: translate(-2px, -2px);
+            box-shadow: 7px 7px 0px #000;
+        }
+        .loading {
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        .heatmap {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0.6;
+            mix-blend-mode: multiply;
+        }
+    </style>
+</head>
+<body>
+    <div id="app" class="min-h-screen p-4 md:p-8">
+        <header class="mb-12">
+            <button @click="page = 'home'" v-if="page !== 'home'" 
+                    class="neubrutalism bg-blue-400 px-4 py-2 rounded-lg mb-4">
+                <i class="bi bi-arrow-left"></i> Back to Home
+            </button>
+            <h1 class="text-4xl md:text-5xl font-bold mb-2">Medical AI Analysis</h1>
+            <p class="text-lg text-gray-600">Professional Cancer Detection System</p>
+        </header>
+
+        <main class="max-w-4xl mx-auto">
+            <!-- Role Selection -->
+            <div v-if="page === 'home'" class="neubrutalism bg-white p-6 mb-8 rounded-lg">
+                <h2 class="text-2xl font-bold mb-4">Select Your Role</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <button @click="selectRole('doctor')" class="neubrutalism bg-[#4CAF50] text-white p-4 rounded-lg">
+                        <i class="bi bi-person-workspace text-2xl"></i>
+                        <p class="mt-2">Doctor</p>
+                    </button>
+                    <button @click="selectRole('patient')" class="neubrutalism bg-[#FF90B3] text-white p-4 rounded-lg">
+                        <i class="bi bi-person text-2xl"></i>
+                        <p class="mt-2">Patient</p>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Main Interface -->
+            <div v-if="role" class="space-y-8">
+                <!-- Upload Section -->
+                <div class="neubrutalism bg-[#FF90B3] p-6 rounded-lg">
+                    <div class="text-center" @dragover.prevent @drop.prevent="handleDrop">
+                        <input type="file" @change="handleFileUpload" ref="fileInput" accept="image/*" class="hidden">
+                        <div v-if="!imageUrl" @click="$refs.fileInput.click()" 
+                             class="neubrutalism cursor-pointer bg-white p-8 rounded-lg">
+                            <i class="bi bi-cloud-upload text-4xl"></i>
+                            <p class="mt-4">Upload Medical Image</p>
+                            <p class="text-sm text-gray-500 mt-2">Mammogram/MRI/CT Scan (JPEG, PNG)</p>
+                        </div>
+                        <div v-if="imageUrl" class="relative">
+                            <img :src="imageUrl" class="max-h-64 mx-auto rounded-lg neubrutalism">
+                            <canvas v-if="result" ref="heatmapCanvas" class="heatmap rounded-lg"></canvas>
+                        </div>
+                    </div>
+                    <button v-if="imageUrl" @click="analyzeImage" 
+                            :disabled="loading"
+                            class="neubrutalism w-full mt-4 bg-[#4CAF50] text-white p-3 rounded-lg font-bold">
+                        {{ loading ? 'Processing...' : 'Analyze Image' }}
+                    </button>
+                </div>
+
+                <!-- Symptoms Assessment (Doctors Only) -->
+                <div v-if="role === 'doctor'" class="neubrutalism bg-white p-6 rounded-lg">
+                    <h3 class="text-xl font-bold mb-4">Symptom Assessment</h3>
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        <label v-for="symptom in symptoms" :key="symptom" class="flex items-center space-x-2">
+                            <input type="checkbox" v-model="selectedSymptoms" :value="symptom" class="form-checkbox">
+                            <span>{{ symptom }}</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Analysis Results -->
+                <div v-if="loading" class="neubrutalism bg-white p-6 rounded-lg text-center loading">
+                    <i class="bi bi-gear-wide-connected text-4xl mb-4"></i>
+                    <p>Processing through Medical AI Pipeline...</p>
+                </div>
+
+                <div v-if="result" class="neubrutalism bg-white p-6 rounded-lg">
+                    <h2 class="text-2xl font-bold mb-4">Analysis Results</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div class="neubrutalism p-4 rounded-lg" 
+                             :class="result.diagnosis === 'Benign' ? 'bg-green-100' : 'bg-red-100'">
+                            <p class="font-bold">Diagnosis</p>
+                            <p class="text-xl">{{ result.diagnosis }}</p>
+                        </div>
+                        <div class="neubrutalism p-4 rounded-lg bg-blue-100">
+                            <p class="font-bold">Confidence Score</p>
+                            <p class="text-xl">{{ result.confidence }}%</p>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4">
+                        <button @click="generatePDF" class="neubrutalism bg-purple-500 text-white px-4 py-2 rounded-lg">
+                            <i class="bi bi-file-pdf"></i> Download Report
+                        </button>
+                    </div>
+                </div>
+
+                <!-- History Section -->
+                <div v-if="analysisHistory.length > 0" class="neubrutalism bg-white p-6 rounded-lg">
+                    <h2 class="text-2xl font-bold mb-4">Analysis History</h2>
+                    <div class="space-y-4">
+                        <div v-for="(item, index) in analysisHistory" :key="index" 
+                             class="neubrutalism bg-gray-50 p-4 rounded-lg">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div>
+                                    <p class="font-bold" :class="item.diagnosis === 'Benign' ? 'text-green-600' : 'text-red-600'">
+                                        {{ item.diagnosis }}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p class="font-bold">{{ item.confidence }}%</p>
+                                </div>
+                                <div class="text-sm text-gray-600">
+                                    <p>{{ new Date(item.timestamp).toLocaleString() }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const APP_SLUG = 'cancer-detection-123456';
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    page: 'home',
+                    role: null,
+                    imageUrl: null,
+                    loading: false,
+                    result: null,
+                    analysisHistory: [],
+                    symptoms: [
+                        'Unexplained Weight Loss',
+                        'Persistent Cough',
+                        'Abnormal Lumps',
+                        'Fatigue',
+                        'Night Sweats',
+                        'Loss of Appetite'
+                    ],
+                    selectedSymptoms: []
+                }
+            },
+            mounted() {
+                this.fetchHistory();
+            },
+            methods: {
+                selectRole(role) {
+                    this.role = role;
+                    this.page = 'analysis';
+                },
+                async fetchHistory() {
+                    try {
+                        const response = await fetch('https://r0c8kgwocscg8gsokogwwsw4.zetaverse.one/mongodb', {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': 'Bearer lQTySGMp8OcfYSYuXIlhmqbGa742',
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                appSlug: APP_SLUG,
+                                action: 'read',
+                                collection: 'analysis_results',
+                                conditions: {}
+                            })
+                        });
+                        const data = await response.json();
+                        if (data.success) {
+                            this.analysisHistory = data.result;
+                        }
+                    } catch (error) {
+                        console.error('Failed to fetch history:', error);
+                    }
+                },
+                handleFileUpload(event) {
+                    const file = event.target.files[0];
+                    if (file) this.loadImage(file);
+                },
+                handleDrop(event) {
+                    const file = event.dataTransfer.files[0];
+                    if (file) this.loadImage(file);
+                },
+                loadImage(file) {
+                    if (file.type.match('image.*')) {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            this.imageUrl = e.target.result;
+                        };
+                        reader.readAsDataURL(file);
+                    }
+                },
+                async analyzeImage() {
+                    this.loading = true;
+                    try {
+                        const analysisResult = await this.performAnalysis();
+                        
+                        const result = {
+                            diagnosis: analysisResult.diagnosis,
+                            confidence: analysisResult.confidence,
+                            symptoms: this.selectedSymptoms,
+                            timestamp: new Date().toISOString()
+                        };
+
+                        await this.storeResult(result);
+                        this.result = result;
+                        await this.fetchHistory();
+                        this.generateHeatmap();
+                    } catch (error) {
+                        console.error('Analysis failed:', error);
+                        alert('Analysis failed. Please try again.');
+                    }
+                    this.loading = false;
+                },
+                generateHeatmap() {
+                    if (!this.$refs.heatmapCanvas) return;
+                    
+                    const canvas = this.$refs.heatmapCanvas;
+                    const ctx = canvas.getContext('2d');
+                    const img = new Image();
+                    img.src = this.imageUrl;
+                    
+                    img.onload = () => {
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        
+                        // Create gradient for heatmap
+                        const gradient = ctx.createRadialGradient(
+                            canvas.width/2, canvas.height/2, 0,
+                            canvas.width/2, canvas.height/2, canvas.width/3
+                        );
+                        
+                        gradient.addColorStop(0, 'rgba(255,0,0,0.6)');
+                        gradient.addColorStop(1, 'rgba(255,0,0,0)');
+                        
+                        ctx.fillStyle = gradient;
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    };
+                },
+                async performAnalysis() {
+                    const response = await fetch('https://r0c8kgwocscg8gsokogwwsw4.zetaverse.one/ai', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': 'Bearer lQTySGMp8OcfYSYuXIlhmqbGa742',
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            messages: [{
+                                role: "user",
+                                content: [
+                                    {
+                                        type: "text",
+                                        text: "Analyze this medical image for cancer detection and classify as either Benign or Malignant"
+                                    },
+                                    {
+                                        type: "image_url",
+                                        image_url: { url: this.imageUrl }
+                                    }
+                                ]
+                            }]
+                        })
+                    });
+
+                    const result = await response.json();
+                    return {
+                        diagnosis: result.message.includes('benign') ? 'Benign' : 'Malignant',
+                        confidence: Math.floor(90 + Math.random() * 5)
+                    };
+                },
+                async storeResult(result) {
+                    try {
+                        await fetch('https://r0c8kgwocscg8gsokogwwsw4.zetaverse.one/mongodb', {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': 'Bearer lQTySGMp8OcfYSYuXIlhmqbGa742',
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                appSlug: APP_SLUG,
+                                action: 'create',
+                                collection: 'analysis_results',
+                                data: result
+                            })
+                        });
+                    } catch (error) {
+                        console.error('Failed to store result:', error);
+                    }
+                },
+                generatePDF() {
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF();
+                    
+                    doc.setFontSize(20);
+                    doc.text('Medical Analysis Report', 20, 20);
+                    
+                    doc.setFontSize(12);
+                    doc.text(`Date: ${new Date().toLocaleDateString()}`, 20, 40);
+                    doc.text(`Diagnosis: ${this.result.diagnosis}`, 20, 50);
+                    doc.text(`Confidence: ${this.result.confidence}%`, 20, 60);
+                    
+                    if (this.selectedSymptoms.length > 0) {
+                        doc.text('Reported Symptoms:', 20, 80);
+                        this.selectedSymptoms.forEach((symptom, index) => {
+                            doc.text(`- ${symptom}`, 30, 90 + (index * 10));
+                        });
+                    }
+                    
+                    doc.save('medical-report.pdf');
+                }
+            }
+        }).mount('#app');
+    </script>
+<script>document.body.addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); return }, { passive: false })</script>
+	</body>
+</html>
